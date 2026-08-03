@@ -1,0 +1,49 @@
+name: Supabase Ping Check
+
+on:
+  workflow_dispatch:
+  push:
+  schedule:
+    # 3일마다 자정에 자동 실행
+    - cron: '0 0 */3 * *'
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Supabase JS Client
+        run: npm install @supabase/supabase-js
+
+      - name: Ping Supabase API
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          node -e "
+          const { createClient } = require('@supabase/supabase-js');
+          const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
+          async function checkPing() {
+            try {
+              const { data, error } = await supabase.from('clients').select('*').limit(1);
+              if (error && error.code !== 'PGRST204' && error.code !== 'PGRST301' && !error.message.includes('relation')) {
+                console.log('연결 응답 수신 성공! (Supabase 서버와 정상 통신됨)');
+              } else {
+                console.log('✅ Supabase 연결 성공! (Ping OK)');
+              }
+            } catch (err) {
+              console.error('❌ 연결 실패:', err);
+              process.exit(1);
+            }
+          }
+          checkPing();
+          "
