@@ -4,13 +4,12 @@ on:
   workflow_dispatch:
   push:
   schedule:
-    # 3일마다 자정에 자동 실행
-    - cron: '0 0 */3 * *'
+    # 매일 자정에 자동 실행 (3일 주기였던 것을 1일로 단축 — 실패해도 다음날 바로 재시도되게)
+    - cron: '0 0 * * *'
 
 jobs:
   ping-supabase:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,20 +29,38 @@ jobs:
         run: |
           node -e "
           const { createClient } = require('@supabase/supabase-js');
+
+          if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+            console.error('❌ SUPABASE_URL 또는 SUPABASE_ANON_KEY 시크릿이 비어 있음');
+            process.exit(1);
+          }
+
           const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 
           async function checkPing() {
             try {
-              const { data, error } = await supabase.from('clients').select('*').limit(1);
-              if (error && error.code !== 'PGRST204' && error.code !== 'PGRST301' && !error.message.includes('relation')) {
-                console.log('연결 응답 수신 성공! (Supabase 서버와 정상 통신됨)');
-              } else {
-                console.log('✅ Supabase 연결 성공! (Ping OK)');
+              const { data, error, status, statusText } = await supabase
+                .from('clients')
+                .select('id')
+                .limit(1);
+
+              // clients 테이블은 실제로 존재하므로, 정상 연결이면 error가 없어야 함.
+              // error가 있으면(테이블 없음, 프로젝트 일시정지 응답 등 무엇이든) 실패로 처리한다.
+              if (error) {
+                console.error('❌ Supabase 응답에 에러가 담겨 있음 — 핑 실패로 간주');
+                console.error('status:', status, statusText);
+                console.error('code:', error.code);
+                console.error('message:', error.message);
+                process.exit(1);
               }
+
+              console.log('✅ Supabase 연결 성공! (Ping OK) — 반환 행 수:', data ? data.length : 0);
             } catch (err) {
-              console.error('❌ 연결 실패:', err);
+              // fetch 자체가 실패한 경우 (네트워크 불가, 프로젝트 완전 중단 등)
+              console.error('❌ 연결 실패(예외 발생):', err.message || err);
               process.exit(1);
             }
           }
+
           checkPing();
           "
