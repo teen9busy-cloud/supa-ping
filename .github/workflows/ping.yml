@@ -1,11 +1,19 @@
-name: Supabase Ping Check
+name: Supabase Multi-Project Ping Check
 
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
+    paths-ignore:
+      - 'STATUS.md'
+      - 'README.md'
   schedule:
-    # 매일 자정에 자동 실행 (3일 주기였던 것을 1일로 단축 — 실패해도 다음날 바로 재시도되게)
-    - cron: '0 0 * * *'
+    # 하루 2회 (00:00, 12:00 UTC -> 한국시간 오전 9시, 오후 9시) 자동 실행
+    - cron: '0 0,12 * * *'
+
+permissions:
+  contents: write
 
 jobs:
   ping-supabase:
@@ -17,50 +25,27 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
 
-      - name: Install Supabase JS Client
+      - name: Install Dependencies
         run: npm install @supabase/supabase-js
 
-      - name: Ping Supabase API
+      - name: Run Multi-Project Ping
         env:
+          SIMONY_URL: ${{ secrets.SIMONY_URL }}
+          SIMONY_KEY: ${{ secrets.SIMONY_KEY }}
+          STUDENT_URL: ${{ secrets.STUDENT_URL }}
+          STUDENT_KEY: ${{ secrets.STUDENT_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: node ping.js
+
+      - name: Record Status & Keep Actions Active
         run: |
-          node -e "
-          const { createClient } = require('@supabase/supabase-js');
-
-          if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-            console.error('❌ SUPABASE_URL 또는 SUPABASE_ANON_KEY 시크릿이 비어 있음');
-            process.exit(1);
-          }
-
-          const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-
-          async function checkPing() {
-            try {
-              const { data, error, status, statusText } = await supabase
-                .from('clients')
-                .select('id')
-                .limit(1);
-
-              // clients 테이블은 실제로 존재하므로, 정상 연결이면 error가 없어야 함.
-              // error가 있으면(테이블 없음, 프로젝트 일시정지 응답 등 무엇이든) 실패로 처리한다.
-              if (error) {
-                console.error('❌ Supabase 응답에 에러가 담겨 있음 — 핑 실패로 간주');
-                console.error('status:', status, statusText);
-                console.error('code:', error.code);
-                console.error('message:', error.message);
-                process.exit(1);
-              }
-
-              console.log('✅ Supabase 연결 성공! (Ping OK) — 반환 행 수:', data ? data.length : 0);
-            } catch (err) {
-              // fetch 자체가 실패한 경우 (네트워크 불가, 프로젝트 완전 중단 등)
-              console.error('❌ 연결 실패(예외 발생):', err.message || err);
-              process.exit(1);
-            }
-          }
-
-          checkPing();
-          "
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action Keep-Alive"
+          git add STATUS.md
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: record keep-alive ping status [skip ci]"
+            git push
+          fi
