@@ -1,6 +1,11 @@
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 
+let ws;
+try {
+  ws = require('ws');
+} catch (e) {}
+
 // 등록된 Supabase 프로젝트 목록 구성
 const targets = [
   {
@@ -41,9 +46,14 @@ async function pingProject(target) {
   console.log(`🌐 엔드포인트: ${target.url}`);
 
   try {
-    const supabase = createClient(target.url, target.key, {
+    const clientOptions = {
       auth: { persistSession: false }
-    });
+    };
+    if (ws) {
+      clientOptions.realtime = { transport: ws };
+    }
+
+    const supabase = createClient(target.url, target.key, clientOptions);
 
     let overallSuccess = false;
     let details = [];
